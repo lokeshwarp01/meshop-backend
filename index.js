@@ -189,6 +189,106 @@ app.post('/updateproduct', async (req, res) => {
     }
 });
 
+// --- User Schema & Model ---
+const userSchema = new mongoose.Schema({
+  id: { type: Number, unique: true },
+  name: String,
+  email: { type: String, unique: true },
+  password: String, // hash in production
+  role: { type: String, enum: ['admin','customer'], default: 'customer' }
+}, { timestamps: true });
+
+const User = mongoose.model('User', userSchema);
+
+// --- Order Schema & Model ---
+const orderSchema = new mongoose.Schema({
+  id: { type: Number, unique: true },
+  userId: Number,
+  items: [{
+    productId: Number,
+    quantity: Number,
+    price: Number
+  }],
+  total: Number,
+  status: { type: String, enum: ['pending','shipped','delivered'], default: 'pending' }
+}, { timestamps: true });
+
+const Order = mongoose.model('Order', orderSchema);
+
+// --- User Endpoints ---
+
+// List users
+app.get('/users', async (req, res) => {
+  const users = await User.find().select('-password');
+  res.json({ success: 1, users });
+});
+
+// Create user
+app.post('/users', async (req, res) => {
+  const count = await User.countDocuments();
+  const user = new User({ id: count+1, ...req.body });
+  await user.save();
+  res.json({ success: 1, user: user.toObject({ versionKey:false, transform:(_,doc)=>{ delete doc.password; return doc; } }) });
+});
+
+// Get user
+app.get('/users/:id', async (req, res) => {
+  const user = await User.findOne({ id: req.params.id }).select('-password');
+  if (!user) return res.status(404).json({ success: 0, message: 'Not found' });
+  res.json({ success: 1, user });
+});
+
+// Update user
+app.put('/users/:id', async (req, res) => {
+  const user = await User.findOneAndUpdate({ id: req.params.id }, req.body, { new: true }).select('-password');
+  res.json({ success: 1, user });
+});
+
+// Delete user
+app.delete('/users/:id', async (req, res) => {
+  await User.findOneAndDelete({ id: req.params.id });
+  res.json({ success: 1 });
+});
+
+// --- Order Endpoints ---
+
+// List orders
+app.get('/orders', async (req, res) => {
+  const orders = await Order.find();
+  res.json({ success: 1, orders });
+});
+
+// Create order
+app.post('/orders', async (req, res) => {
+  const count = await Order.countDocuments();
+  const order = new Order({ id: count+1, ...req.body });
+  await order.save();
+  res.json({ success: 1, order });
+});
+
+// Get order
+app.get('/orders/:id', async (req, res) => {
+  const order = await Order.findOne({ id: req.params.id });
+  if (!order) return res.status(404).json({ success: 0, message: 'Not found' });
+  res.json({ success: 1, order });
+});
+
+// Update order status
+app.patch('/orders/:id/status', async (req, res) => {
+  const order = await Order.findOneAndUpdate(
+    { id: req.params.id },
+    { status: req.body.status },
+    { new: true }
+  );
+  res.json({ success: 1, order });
+});
+
+// Delete order
+app.delete('/orders/:id', async (req, res) => {
+  await Order.findOneAndDelete({ id: req.params.id });
+  res.json({ success: 1 });
+});
+
 app.listen(port, () => {
     console.log(`🚀 Server is running on port ${port}`);
 });
