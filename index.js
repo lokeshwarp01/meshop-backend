@@ -12,7 +12,7 @@ app.use(express.json());
 app.use(cors());
 
 // Database connection with MongoDB
-mongoose.connect("mongodb+srv://lokeshwar:lokeshwarp@cluster0.1fbxk7q.mongodb.net/")
+mongoose.connect("MONGO_URI" in process.env ? process.env.MONGO_URI : "dead")
     .then(() => console.log("✅ MongoDB connected"))
     .catch((err) => console.error("❌ MongoDB connection error:", err));
 
@@ -195,7 +195,7 @@ const userSchema = new mongoose.Schema({
   name: String,
   email: { type: String, unique: true },
   password: String, // hash in production
-  role: { type: String, enum: ['admin','customer'], default: 'customer' }
+  role: { type: String, enum: ['supplier','customer'], default: 'customer' }
 }, { timestamps: true });
 
 const User = mongoose.model('User', userSchema);
