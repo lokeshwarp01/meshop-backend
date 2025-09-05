@@ -1,4 +1,4 @@
-const port = process.env.PORT || 4000;
+const port = 4000;
 const express = require("express");
 const app = express();
 const mongoose = require("mongoose");
@@ -6,15 +6,13 @@ const jwt = require("jsonwebtoken");
 const multer = require("multer");
 const cors = require("cors");
 const path = require("path");
-const bcrypt = require("bcryptjs");
 require('dotenv').config();
 
 app.use(express.json());
 app.use(cors());
 
 // Database connection with MongoDB
-const MONGODB_URI = process.env.MONGO_URI || "mongodb://localhost:27017/ecommerce";
-mongoose.connect(MONGODB_URI)
+mongoose.connect("MONGO_URI" in process.env ? process.env.MONGO_URI : "dead")
     .then(() => console.log("✅ MongoDB connected"))
     .catch((err) => console.error("❌ MongoDB connection error:", err));
 
@@ -22,13 +20,6 @@ mongoose.connect(MONGODB_URI)
 app.get("/", (req, res) => {
     res.send("Express app is Running");
 });
-
-// Create uploads directory if it doesn't exist
-const fs = require('fs');
-const uploadsDir = './uploads';
-if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir);
-}
 
 // Updated multer configuration for multiple files
 const storage = multer.diskStorage({
@@ -42,17 +33,14 @@ const upload = multer({ storage: storage });
 // Static file serving
 app.use('/uploads', express.static('uploads'));
 
-// image upload endpoint
+// image upload endpoint (existing)
 app.post("/upload", upload.single("product"), (req, res) => {
-    const baseUrl = process.env.NODE_ENV === 'production' 
-        ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}` 
-        : `http://localhost:${port}`;
-    
     res.json({
         success: 1,
-        image_url: `${baseUrl}/uploads/${req.file.filename}`
+        image_url: `http://localhost:${port}/uploads/${req.file.filename}`
     });
 });
+
 
 // Enhanced Product Schema
 const productSchema = new mongoose.Schema({
@@ -201,208 +189,104 @@ app.post('/updateproduct', async (req, res) => {
     }
 });
 
-// --- Enhanced User Schema & Model ---
+// --- User Schema & Model ---
 const userSchema = new mongoose.Schema({
-    name: { type: String, required: true },
-    email: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
-    role: { type: String, enum: ['supplier','customer'], default: 'customer' }
+  id: { type: Number, unique: true },
+  name: String,
+  email: { type: String, unique: true },
+  password: String, // hash in production
+  role: { type: String, enum: ['supplier','customer'], default: 'customer' }
 }, { timestamps: true });
-
-// Password hashing middleware
-userSchema.pre('save', async function(next) {
-    if (!this.isModified('password')) return next();
-    this.password = await bcrypt.hash(this.password, 12);
-    next();
-});
-
-// Method to compare passwords
-userSchema.methods.comparePassword = async function(candidatePassword) {
-    return await bcrypt.compare(candidatePassword, this.password);
-};
 
 const User = mongoose.model('User', userSchema);
 
-// --- Enhanced Order Schema & Model ---
+// --- Order Schema & Model ---
 const orderSchema = new mongoose.Schema({
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    items: [{
-        productId: { type: Number, required: true },
-        quantity: { type: Number, required: true, min: 1 },
-        price: { type: Number, required: true, min: 0 },
-        name: String,
-        image: String
-    }],
-    total: { type: Number, required: true, min: 0 },
-    status: { type: String, enum: ['pending','shipped','delivered','cancelled'], default: 'pending' },
-    shippingAddress: {
-        street: String,
-        city: String,
-        state: String,
-        zipCode: String,
-        country: String
-    },
-    paymentMethod: { type: String, enum: ['card', 'paypal', 'cash'], default: 'card' }
+  id: { type: Number, unique: true },
+  userId: Number,
+  items: [{
+    productId: Number,
+    quantity: Number,
+    price: Number
+  }],
+  total: Number,
+  status: { type: String, enum: ['pending','shipped','delivered'], default: 'pending' }
 }, { timestamps: true });
 
 const Order = mongoose.model('Order', orderSchema);
 
-// --- Auth Middleware ---
-const authenticate = async (req, res, next) => {
-    try {
-        const token = req.header('Authorization')?.replace('Bearer ', '');
-        if (!token) {
-            return res.status(401).json({ success: 0, message: 'Access denied. No token provided.' });
-        }
+// --- User Endpoints ---
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret');
-        const user = await User.findById(decoded.id).select('-password');
-        if (!user) {
-            return res.status(401).json({ success: 0, message: 'Invalid token.' });
-        }
-
-        req.user = user;
-        next();
-    } catch (error) {
-        res.status(401).json({ success: 0, message: 'Invalid token.' });
-    }
-};
-
-// --- Enhanced User Endpoints ---
-
-// Register user
-app.post('/auth/register', async (req, res) => {
-    try {
-        const { name, email, password, role } = req.body;
-
-        // Check if user exists
-        const existingUser = await User.findOne({ email });
-        if (existingUser) {
-            return res.status(400).json({ success: 0, message: 'User already exists' });
-        }
-
-        const user = new User({ name, email, password, role: role || 'customer' });
-        await user.save();
-
-        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET || 'fallback-secret', { expiresIn: '7d' });
-
-        res.status(201).json({
-            success: 1,
-            user: { _id: user._id, name: user.name, email: user.email, role: user.role },
-            token
-        });
-    } catch (error) {
-        res.status(500).json({ success: 0, error: error.message });
-    }
+// List users
+app.get('/users', async (req, res) => {
+  const users = await User.find().select('-password');
+  res.json({ success: 1, users });
 });
 
-// Login user
-app.post('/auth/login', async (req, res) => {
-    try {
-        const { email, password } = req.body;
-
-        const user = await User.findOne({ email });
-        if (!user || !(await user.comparePassword(password))) {
-            return res.status(401).json({ success: 0, message: 'Invalid credentials' });
-        }
-
-        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET || 'fallback-secret', { expiresIn: '7d' });
-
-        res.json({
-            success: 1,
-            user: { _id: user._id, name: user.name, email: user.email, role: user.role },
-            token
-        });
-    } catch (error) {
-        res.status(500).json({ success: 0, error: error.message });
-    }
+// Create user
+app.post('/users', async (req, res) => {
+  const count = await User.countDocuments();
+  const user = new User({ id: count+1, ...req.body });
+  await user.save();
+  res.json({ success: 1, user: user.toObject({ versionKey:false, transform:(_,doc)=>{ delete doc.password; return doc; } }) });
 });
 
-// Get current user profile
-app.get('/users/me', authenticate, async (req, res) => {
-    res.json({ success: 1, user: req.user });
+// Get user
+app.get('/users/:id', async (req, res) => {
+  const user = await User.findOne({ id: req.params.id }).select('-password');
+  if (!user) return res.status(404).json({ success: 0, message: 'Not found' });
+  res.json({ success: 1, user });
 });
 
-// Update user profile
-app.put('/users/me', authenticate, async (req, res) => {
-    try {
-        const user = await User.findByIdAndUpdate(
-            req.user._id,
-            req.body,
-            { new: true, runValidators: true }
-        ).select('-password');
-
-        res.json({ success: 1, user });
-    } catch (error) {
-        res.status(500).json({ success: 0, error: error.message });
-    }
+// Update user
+app.put('/users/:id', async (req, res) => {
+  const user = await User.findOneAndUpdate({ id: req.params.id }, req.body, { new: true }).select('-password');
+  res.json({ success: 1, user });
 });
 
-// --- Enhanced Order Endpoints ---
+// Delete user
+app.delete('/users/:id', async (req, res) => {
+  await User.findOneAndDelete({ id: req.params.id });
+  res.json({ success: 1 });
+});
+
+// --- Order Endpoints ---
+
+// List orders
+app.get('/orders', async (req, res) => {
+  const orders = await Order.find();
+  res.json({ success: 1, orders });
+});
 
 // Create order
-app.post('/orders', authenticate, async (req, res) => {
-    try {
-        const order = new Order({
-            ...req.body,
-            userId: req.user._id
-        });
-
-        await order.save();
-        await order.populate('userId', 'name email');
-
-        res.status(201).json({ success: 1, order });
-    } catch (error) {
-        res.status(500).json({ success: 0, error: error.message });
-    }
+app.post('/orders', async (req, res) => {
+  const count = await Order.countDocuments();
+  const order = new Order({ id: count+1, ...req.body });
+  await order.save();
+  res.json({ success: 1, order });
 });
 
-// Get user's orders
-app.get('/orders/my-orders', authenticate, async (req, res) => {
-    try {
-        const orders = await Order.find({ userId: req.user._id }).sort({ createdAt: -1 });
-        res.json({ success: 1, orders });
-    } catch (error) {
-        res.status(500).json({ success: 0, error: error.message });
-    }
+// Get order
+app.get('/orders/:id', async (req, res) => {
+  const order = await Order.findOne({ id: req.params.id });
+  if (!order) return res.status(404).json({ success: 0, message: 'Not found' });
+  res.json({ success: 1, order });
 });
 
-// Get single order
-app.get('/orders/:id', authenticate, async (req, res) => {
-    try {
-        const order = await Order.findById(req.params.id);
-        if (!order) {
-            return res.status(404).json({ success: 0, message: 'Order not found' });
-        }
-
-        // Check if user owns the order
-        if (order.userId.toString() !== req.user._id.toString() && req.user.role !== 'supplier') {
-            return res.status(403).json({ success: 0, message: 'Access denied' });
-        }
-
-        res.json({ success: 1, order });
-    } catch (error) {
-        res.status(500).json({ success: 0, error: error.message });
-    }
+// Update order status
+app.patch('/orders/:id/status', async (req, res) => {
+  const order = await Order.findOneAndUpdate(
+    { id: req.params.id },
+    { status: req.body.status },
+    { new: true }
+  );
+  res.json({ success: 1, order });
 });
 
-// Update order status (for suppliers)
-app.patch('/orders/:id/status', authenticate, async (req, res) => {
-    try {
-        if (req.user.role !== 'supplier') {
-            return res.status(403).json({ success: 0, message: 'Access denied' });
-        }
-
-        const order = await Order.findByIdAndUpdate(
-            req.params.id,
-            { status: req.body.status },
-            { new: true }
-        );
-
-        res.json({ success: 1, order });
-    } catch (error) {
-        res.status(500).json({ success: 0, error: error.message });
-    }
+// Delete order
+app.delete('/orders/:id', async (req, res) => {
+  await Order.findOneAndDelete({ id: req.params.id });
+  res.json({ success: 1 });
 });
 
 app.listen(port, () => {
