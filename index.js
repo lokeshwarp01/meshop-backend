@@ -1,4 +1,4 @@
-const port = 4000;
+const port = process.env.PORT || 4000;
 const express = require("express");
 const app = express();
 const mongoose = require("mongoose");
@@ -20,26 +20,34 @@ mongoose.connect("MONGO_URI" in process.env ? process.env.MONGO_URI : "dead")
 app.get("/", (req, res) => {
     res.send("Express app is Running");
 });
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
-// Updated multer configuration for multiple files
-const storage = multer.diskStorage({
-    destination: './uploads',
-    filename: (req, file, cb) => {
-        return cb(null, `${file.fieldname}_${Date.now()}${path.extname(file.originalname)}`);
-    }
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// Updated multer configuration (Cloudinary)
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'products', // folder name in Cloudinary
+    allowed_formats: ['jpg', 'png', 'jpeg', 'webp'],
+  },
 });
 const upload = multer({ storage: storage });
 
-// Static file serving
-app.use('/uploads', express.static('uploads'));
-
-// image upload endpoint (existing)
+// image upload endpoint
 app.post("/upload", upload.single("product"), (req, res) => {
-    res.json({
-        success: 1,
-        image_url: `http://localhost:${port}/uploads/${req.file.filename}`
-    });
+  res.json({
+    success: 1,
+    image_url: req.file.path, // Cloudinary gives the hosted URL
+  });
 });
+
 
 
 // Enhanced Product Schema
