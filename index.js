@@ -45,7 +45,7 @@ app.use('/uploads', express.static('uploads'));
 // image upload endpoint
 app.post("/upload", upload.single("product"), (req, res) => {
     const baseUrl = process.env.NODE_ENV === 'production' 
-        ? `https://${process.env.RENDER_EXTERNAL_URL || 'your-backend-url.com'}` 
+        ? `https://${process.env.RENDER_EXTERNAL_HOSTNAME}` 
         : `http://localhost:${port}`;
     
     res.json({
